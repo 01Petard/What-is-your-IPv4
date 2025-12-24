@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IP 地址查询 | Geek Terminal</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            background: transparent;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+            color: #00aa33;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        html {
+            background: #000000;
+        }
+
+        #matrix-canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 0;
+            opacity: 0.8;
+            pointer-events: none;
+        }
+
+        .container {
+            background: rgba(0, 0, 0, 0.85);
+            border: 2px solid #00aa33;
+            border-radius: 8px;
+            padding: 40px;
+            max-width: 600px;
+            width: 100%;
+            box-shadow: 
+                0 0 20px rgba(0, 170, 51, 0.2),
+                inset 0 0 20px rgba(0, 170, 51, 0.03);
+            position: relative;
+            z-index: 1;
+            backdrop-filter: blur(5px);
+        }
+
+        .container::before {
+            content: '';
+            position: absolute;
+            top: -2px;
+            left: -2px;
+            right: -2px;
+            bottom: -2px;
+            background: linear-gradient(45deg, #00aa33, #0088aa, #00aa33);
+            border-radius: 8px;
+            z-index: -1;
+            opacity: 0.2;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            position: relative;
+        }
+
+        .header h1 {
+            font-size: 28px;
+            color: #00aa33;
+            text-shadow: 
+                0 0 10px rgba(0, 170, 51, 0.3),
+                0 0 20px rgba(0, 170, 51, 0.15);
+            letter-spacing: 2px;
+            margin-bottom: 10px;
+        }
+
+        .header::after {
+            content: '';
+            display: block;
+            width: 100px;
+            height: 2px;
+            background: linear-gradient(90deg, transparent, #00aa33, transparent);
+            margin: 15px auto;
+            box-shadow: 0 0 10px rgba(0, 170, 51, 0.3);
+        }
+
+        .terminal-window {
+            background: rgba(0, 0, 0, 0.6);
+            border: 1px solid #00aa33;
+            border-radius: 4px;
+            padding: 20px;
+            margin-top: 20px;
+            position: relative;
+        }
+
+        .terminal-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid rgba(0, 170, 51, 0.2);
+        }
+
+        .terminal-dots {
+            display: flex;
+            gap: 6px;
+            margin-right: 10px;
+        }
+
+        .dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+        }
+
+        .dot:nth-child(1) { background: #ff5f56; }
+        .dot:nth-child(2) { background: #ffbd2e; }
+        .dot:nth-child(3) { background: #27c93f; }
+
+        .terminal-title {
+            color: #0088aa;
+            font-size: 12px;
+            letter-spacing: 1px;
+        }
+
+        .command-line {
+            margin-bottom: 15px;
+            padding: 10px;
+            background: rgba(0, 170, 51, 0.03);
+            border-left: 3px solid #00aa33;
+        }
+
+        .command-prompt {
+            color: #0088aa;
+            font-size: 14px;
+            display: inline;
+        }
+
+        .command-text {
+            color: #00aa33;
+            font-size: 14px;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            display: inline;
+        }
+
+        #result {
+            color: #00aa33;
+            font-size: 16px;
+            line-height: 1.8;
+            min-height: 150px;
+        }
+
+        .info-line {
+            display: flex;
+            align-items: center;
+            margin-bottom: 15px;
+            padding: 10px;
+            background: rgba(0, 170, 51, 0.03);
+            border-left: 3px solid #00aa33;
+            transition: all 0.3s ease;
+        }
+
+        .info-line:hover {
+            background: rgba(0, 170, 51, 0.06);
+            transform: translateX(5px);
+            box-shadow: -5px 0 10px rgba(0, 170, 51, 0.15);
+        }
+
+        .command-copy {
+            cursor: pointer;
+            position: relative;
+        }
+
+        .command-copy:hover {
+            background: rgba(0, 170, 51, 0.1) !important;
+            border-left-color: #00c8ff !important;
+        }
+
+        .command-copy:active {
+            transform: scale(0.98);
+        }
+
+        .copy-tooltip {
+            position: absolute;
+            right: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: rgba(0, 0, 0, 0.8);
+            color: #00aa33;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+            border: 1px solid #00aa33;
+        }
+
+        .command-copy.copied .copy-tooltip {
+            opacity: 1;
+        }
+
+        .command-copy.copied {
+            border-left-color: #00c8ff !important;
+            background: rgba(0, 200, 255, 0.1) !important;
+        }
+
+        .info-label {
+            color: #0088aa;
+            font-weight: bold;
+            min-width: 80px;
+            margin-right: 15px;
+            text-transform: uppercase;
+            font-size: 12px;
+            letter-spacing: 1px;
+        }
+
+        .info-value {
+            color: #00aa33;
+            word-break: break-all;
+        }
+
+        .loading {
+            display: inline-block;
+            color: #00aa33;
+            font-size: 14px;
+        }
+
+        .loading::after {
+            content: '...';
+            animation: dots 1.5s steps(4, end) infinite;
+        }
+
+        @keyframes dots {
+            0%, 20% { content: '.'; }
+            40% { content: '..'; }
+            60%, 100% { content: '...'; }
+        }
+
+        .cursor {
+            display: inline-block;
+            width: 8px;
+            height: 16px;
+            background: #00aa33;
+            margin-left: 2px;
+            animation: blink 1s infinite;
+        }
+
+        @keyframes blink {
+            0%, 50% { opacity: 1; }
+            51%, 100% { opacity: 0; }
+        }
+
+        .footer {
+            text-align: center;
+            margin-top: 30px;
+            color: rgba(0, 170, 51, 0.4);
+            font-size: 12px;
+            letter-spacing: 1px;
+        }
+
+        .footer a {
+            color: rgba(0, 170, 51, 0.4);
+            text-decoration: none;
+            transition: all 0.3s ease;
+            padding: 2px 4px;
+            border-radius: 2px;
+        }
+
+        .footer a:hover,
+        .footer a:active {
+            color: #00aa33;
+            text-decoration: underline;
+            text-shadow: 0 0 8px rgba(0, 170, 51, 0.6);
+            background: rgba(0, 170, 51, 0.1);
+        }
+
+        .footer a:active {
+            transform: scale(0.98);
+        }
+
+        @media (max-width: 600px) {
+            .container {
+                padding: 25px;
+            }
+
+            .header h1 {
+                font-size: 22px;
+            }
+
+            #result {
+                font-size: 14px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>What is your IPv4</h1>
+        </div>
+        
+        <div class="terminal-window">
+            <div class="terminal-header">
+                <div class="terminal-dots">
+                    <div class="dot"></div>
+                    <div class="dot"></div>
+                    <div class="dot"></div>
+                </div>
+                <div class="terminal-title">terminal@ip-query</div>
+            </div>
+            
+            <div id="result">
+                <div class="loading">正在查询网络信息</div>
+            </div>
+        </div>
+        
+        <div class="footer">
+            <div>
+                <a href="https://doc.bugstack.icu/%E8%BD%AF%E4%BB%B6/%E5%91%BD%E4%BB%A4%E5%86%8C/%E8%8E%B7%E5%8F%96IP%E5%87%BA%E5%8F%A3%E7%9A%84%E4%B8%80%E4%B8%87%E7%A7%8D%E6%96%B9%E6%B3%95.html" target="_blank" rel="noopener noreferrer">Designed by 01Petard</a> | 
+                <a href="https://ping0.cc/" target="_blank" rel="noopener noreferrer">Powered by ping0.cc</a>
+            </div>
+        </div>
+    </div>
+
+    <canvas id="matrix-canvas"></canvas>
+
+    <script type="text/javascript">
+        // 黑客帝国数字雨效果
+        (function() {
+            const canvas = document.getElementById('matrix-canvas');
+            const ctx = canvas.getContext('2d');
+            
+            // 设置canvas尺寸
+            function resizeCanvas() {
+                canvas.width = window.innerWidth;
+                canvas.height = window.innerHeight;
+            }
+            resizeCanvas();
+            window.addEventListener('resize', resizeCanvas);
+            
+            // 字符集（数字、字母、符号）
+            const chars = '01アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲンABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@#$%^&*()_+-=[]{}|;:,.<>?';
+            const charArray = chars.split('');
+            
+            const fontSize = 16;
+            const columns = Math.floor(canvas.width / fontSize);
+            const drops = [];
+            
+            // 初始化每列的起始位置
+            for (let x = 0; x < columns; x++) {
+                drops[x] = Math.random() * -100;
+            }
+            
+            function draw() {
+                // 非常淡的黑色背景，创造轻微拖尾效果
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.02)';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                
+                ctx.font = fontSize + 'px monospace';
+                
+                // 绘制每一列
+                for (let i = 0; i < drops.length; i++) {
+                    const text = charArray[Math.floor(Math.random() * charArray.length)];
+                    const x = i * fontSize;
+                    const y = drops[i] * fontSize;
+                    
+                    // 渐变效果：越往下越亮，顶部字符更暗
+                    const progress = Math.max(0, Math.min(1, y / canvas.height));
+                    const opacity = Math.min(1, progress * 1.5);
+                    
+                    // 使用更亮的绿色，从暗绿到亮绿渐变
+                    if (progress < 0.2) {
+                        // 顶部：暗绿色，但更明显
+                        ctx.fillStyle = `rgba(0, 150, 50, ${opacity * 0.8})`;
+                    } else if (progress < 0.6) {
+                        // 中部：中等绿色
+                        ctx.fillStyle = `rgba(0, 200, 70, ${opacity * 0.95})`;
+                    } else {
+                        // 底部：亮绿色
+                        ctx.fillStyle = `rgba(0, 255, 120, ${opacity})`;
+                    }
+                    
+                    ctx.fillText(text, x, y);
+                    
+                    // 重置位置
+                    if (y > canvas.height && Math.random() > 0.975) {
+                        drops[i] = 0;
+                    }
+                    
+                    drops[i]++;
+                }
+            }
+            
+            // 动画循环 - 更快的刷新率让效果更流畅
+            setInterval(draw, 35);
+        })();
+
+        function callback(ip, location, asn, org) {
+            var resultDiv = document.getElementById('result');
+            
+            var html = `
+                <div class="info-line">
+                    <span class="info-label">IP</span>
+                    <span class="info-value">${ip}</span>
+                </div>
+                <div class="info-line">
+                    <span class="info-label">Location</span>
+                    <span class="info-value">${location}</span>
+                </div>
+                <div class="info-line">
+                    <span class="info-label">ASN</span>
+                    <span class="info-value">${asn}</span>
+                </div>
+                <div class="info-line">
+                    <span class="info-label">ORG</span>
+                    <span class="info-value">${org}</span>
+                </div>
+                <div class="info-line" style="margin-top: 20px; border-left-color: #0088aa;">
+                    <span class="info-label" style="color: #0088aa;">Terminal</span>
+                    <span class="info-value" style="color: #0088aa;">Try Command Below...<span class="cursor"></span></span>
+                </div>
+                <div class="info-line command-copy" onclick="copyCommand('curl ping0.cc', this)">
+                    <span class="info-label">Command</span>
+                    <span class="info-value">curl ping0.cc</span>
+                    <span class="copy-tooltip">已复制</span>
+                </div>
+            `;
+            
+            resultDiv.innerHTML = html;
+        }
+
+        function copyCommand(text, element) {
+            // 使用现代 Clipboard API
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).then(function() {
+                    showCopyFeedback(element);
+                }).catch(function(err) {
+                    // 如果 Clipboard API 失败，使用备用方法
+                    fallbackCopy(text, element);
+                });
+            } else {
+                // 备用复制方法
+                fallbackCopy(text, element);
+            }
+        }
+
+        function fallbackCopy(text, element) {
+            var textArea = document.createElement('textarea');
+            textArea.value = text;
+            textArea.style.position = 'fixed';
+            textArea.style.left = '-999999px';
+            textArea.style.top = '-999999px';
+            document.body.appendChild(textArea);
+            textArea.focus();
+            textArea.select();
+            
+            try {
+                var successful = document.execCommand('copy');
+                if (successful) {
+                    showCopyFeedback(element);
+                }
+            } catch (err) {
+                console.error('复制失败:', err);
+            }
+            
+            document.body.removeChild(textArea);
+        }
+
+        function showCopyFeedback(element) {
+            element.classList.add('copied');
+            setTimeout(function() {
+                element.classList.remove('copied');
+            }, 2000);
+        }
+    </script>
+    
+    <script type="text/javascript" src="https://ping0.cc/geo/jsonp/callback"></script>
+</body>
+</html>
