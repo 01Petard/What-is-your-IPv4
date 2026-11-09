@@ -327,8 +327,9 @@
         
         <div class="footer">
             <div>
-                <a href="https://doc.bugstack.icu/%E8%BD%AF%E4%BB%B6/%E5%91%BD%E4%BB%A4%E5%86%8C/%E8%8E%B7%E5%8F%96IP%E5%87%BA%E5%8F%A3%E7%9A%84%E4%B8%80%E4%B8%87%E7%A7%8D%E6%96%B9%E6%B3%95.html" target="_blank" rel="noopener noreferrer">Designed by 01Petard</a> | 
-                <a href="https://ping0.cc/" target="_blank" rel="noopener noreferrer">Powered by ping0.cc</a>
+                <a href="https://doc.bugstack.icu/%E8%BD%AF%E4%BB%B6/%E5%91%BD%E4%BB%A4%E5%86%8C/%E8%8E%B7%E5%8F%96IP%E5%87%BA%E5%8F%A3%E7%9A%84%E4%B8%80%E4%B8%87%E7%A7%8D%E6%96%B9%E6%B3%95.html" target="_blank" rel="noopener noreferrer">Designed by 01Petard</a> |
+                <a href="https://myip.ipip.net/" target="_blank" rel="noopener noreferrer">Powered by ipip.net</a> ·
+                <a href="https://stat.ripe.net/" target="_blank" rel="noopener noreferrer">RIPEstat</a>
             </div>
         </div>
     </div>
@@ -406,39 +407,195 @@
             setInterval(draw, 35);
         })();
 
-        function callback(ip, location, asn, org) {
+        // 带超时的 fetch，避免某个接口挂起时一直转圈
+        function fetchJSON(url, timeout) {
+            return new Promise(function(resolve, reject) {
+                var controller = new AbortController();
+                var timer = setTimeout(function() {
+                    controller.abort();
+                    reject(new Error('timeout'));
+                }, timeout || 8000);
+
+                fetch(url, { cache: 'no-store', signal: controller.signal })
+                    .then(function(res) {
+                        if (!res.ok) {
+                            throw new Error('HTTP ' + res.status);
+                        }
+                        return res.json();
+                    })
+                    .then(function(data) {
+                        clearTimeout(timer);
+                        resolve(data);
+                    })
+                    .catch(function(err) {
+                        clearTimeout(timer);
+                        reject(err);
+                    });
+            });
+        }
+
+        // 数据源，按顺序尝试：ipip.net（中文地址）→ ipwho.is → ipinfo.io
+        var providers = [
+            function() {
+                return fetchJSON('https://myip.ipip.net/json').then(function(data) {
+                    if (!data || data.ret !== 'ok' || !data.data || !data.data.ip) {
+                        throw new Error('invalid ipip response');
+                    }
+
+                    var parts = data.data.location || [];
+                    var location = parts.slice(0, 3).filter(Boolean).join(' ');
+
+                    return {
+                        ip: data.data.ip,
+                        location: location || '未知',
+                        asn: '',
+                        org: parts.slice(3).filter(Boolean).join(' ') || '未知'
+                    };
+                });
+            },
+            function() {
+                return fetchJSON('https://ipwho.is/').then(function(data) {
+                    if (!data || data.success === false || !data.ip) {
+                        throw new Error('invalid ipwho response');
+                    }
+
+                    var connection = data.connection || {};
+                    var location = [data.country, data.region, data.city].filter(Boolean).join(' ');
+
+                    return {
+                        ip: data.ip,
+                        location: location || '未知',
+                        asn: connection.asn ? 'AS' + connection.asn : '',
+                        org: connection.isp || connection.org || '未知'
+                    };
+                });
+            },
+            function() {
+                return fetchJSON('https://ipinfo.io/json').then(function(data) {
+                    if (!data || !data.ip) {
+                        throw new Error('invalid ipinfo response');
+                    }
+
+                    var location = [data.country, data.region, data.city].filter(Boolean).join(' ');
+                    var asn = '';
+                    var org = data.org || '';
+
+                    // ipinfo 的 org 形如 "AS134972 IKUUU NETWORK LTD"
+                    var match = /^(AS\d+)\s*(.*)$/.exec(org);
+                    if (match) {
+                        asn = match[1];
+                        org = match[2] || '未知';
+                    }
+
+                    return {
+                        ip: data.ip,
+                        location: location || '未知',
+                        asn: asn,
+                        org: org || '未知'
+                    };
+                });
+            }
+        ];
+
+        function loadInfo() {
+            var chain = Promise.reject(new Error('no providers'));
+
+            providers.forEach(function(provider) {
+                chain = chain.catch(function() {
+                    return provider();
+                });
+            });
+
+            chain.then(renderInfo).catch(renderError);
+        }
+
+        // ipip.net 不提供 ASN，用 RIPEstat 按 IP 补齐
+        function enrichAsn(info) {
+            if (info.asn || !info.ip) {
+                return;
+            }
+
+            fetchJSON('https://stat.ripe.net/data/prefix-overview/data.json?resource=' + encodeURIComponent(info.ip), 8000)
+                .then(function(data) {
+                    var asns = data && data.data && data.data.asns;
+                    if (!asns || !asns.length || !asns[0].asn) {
+                        return;
+                    }
+
+                    updateField('info-asn', 'AS' + asns[0].asn);
+
+                    if (info.org === '未知' && asns[0].holder) {
+                        updateField('info-org', asns[0].holder);
+                    }
+                })
+                .catch(function() {
+                    // ASN 查询失败时保留 “-”，不影响其他信息展示
+                });
+        }
+
+        function updateField(id, value) {
+            var el = document.getElementById(id);
+            if (el) {
+                el.textContent = value;
+            }
+        }
+
+        function renderInfo(info) {
             var resultDiv = document.getElementById('result');
-            
-            var html = `
+
+            resultDiv.innerHTML = `
                 <div class="info-line">
                     <span class="info-label">IP</span>
-                    <span class="info-value">${ip}</span>
+                    <span class="info-value" id="info-ip"></span>
                 </div>
                 <div class="info-line">
                     <span class="info-label">Location</span>
-                    <span class="info-value">${location}</span>
+                    <span class="info-value" id="info-location"></span>
                 </div>
                 <div class="info-line">
                     <span class="info-label">ASN</span>
-                    <span class="info-value">${asn}</span>
+                    <span class="info-value" id="info-asn"></span>
                 </div>
                 <div class="info-line">
                     <span class="info-label">ORG</span>
-                    <span class="info-value">${org}</span>
+                    <span class="info-value" id="info-org"></span>
                 </div>
                 <div class="info-line" style="margin-top: 20px; border-left-color: #0088aa;">
                     <span class="info-label" style="color: #0088aa;">Terminal</span>
                     <span class="info-value" style="color: #0088aa;">Try Command Below...<span class="cursor"></span></span>
                 </div>
-                <div class="info-line command-copy" onclick="copyCommand('curl ping0.cc', this)">
+                <div class="info-line command-copy" onclick="copyCommand('curl cip.cc', this)">
                     <span class="info-label">Command</span>
-                    <span class="info-value">curl ping0.cc</span>
+                    <span class="info-value">curl cip.cc</span>
                     <span class="copy-tooltip">已复制</span>
                 </div>
             `;
-            
-            resultDiv.innerHTML = html;
+
+            updateField('info-ip', info.ip);
+            updateField('info-location', info.location);
+            updateField('info-asn', info.asn || '-');
+            updateField('info-org', info.org);
+
+            enrichAsn(info);
         }
+
+        function renderError() {
+            var resultDiv = document.getElementById('result');
+
+            resultDiv.innerHTML = `
+                <div class="info-line">
+                    <span class="info-label">Status</span>
+                    <span class="info-value">查询失败，请检查网络后刷新页面</span>
+                </div>
+                <div class="info-line command-copy" onclick="copyCommand('curl cip.cc', this)">
+                    <span class="info-label">Command</span>
+                    <span class="info-value">curl cip.cc</span>
+                    <span class="copy-tooltip">已复制</span>
+                </div>
+            `;
+        }
+
+        loadInfo();
 
         function copyCommand(text, element) {
             // 使用现代 Clipboard API
@@ -484,7 +641,5 @@
             }, 2000);
         }
     </script>
-    
-    <script type="text/javascript" src="https://ping0.cc/geo/jsonp/callback"></script>
 </body>
 </html>
